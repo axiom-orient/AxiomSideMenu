@@ -116,6 +116,20 @@ final class SideMenuFlowTests: XCTestCase {
     )
   }
 
+  func testRasterImageBackgroundCoversTheWindowWithDefaultContentInsets() throws {
+    try assertRasterBackground(arguments: [], extraTop: 0, hasBottomControl: true)
+  }
+
+  func testExplicitTopReservationKeepsTheFooterAndFullImageBackground() throws {
+    try assertRasterBackground(
+      arguments: ["--extra-top-reservation"], extraTop: 44, hasBottomControl: true)
+  }
+
+  func testShortPlainMenuKeepsItsImageBackgroundAcrossTheWindow() throws {
+    try assertRasterBackground(
+      arguments: ["--plain-host", "--short-menu"], extraTop: 0, hasBottomControl: false)
+  }
+
   func testModalOverlayBlocksThePrimaryButtonAction() {
     let app = launch(arguments: ["--diagnostic-action-count"])
     let openButton = app.buttons["open-menu"]
@@ -399,6 +413,53 @@ final class SideMenuFlowTests: XCTestCase {
     return try XCTUnwrap(values as? [String: Double])
   }
 
+  private func assertRasterBackground(
+    arguments: [String],
+    extraTop: Double,
+    hasBottomControl: Bool
+  ) throws {
+    let app = launch(arguments: arguments + ["--geometry-diagnostics", "--image-background"])
+    app.buttons["open-menu"].tap()
+    assertMenuOpen(in: app)
+    let frames = try frameMeasurement(in: app)
+    let safeTop = try XCTUnwrap(frames["safeTop"])
+    let safeBottom = try XCTUnwrap(frames["safeBottom"])
+    XCTAssertGreaterThan(try XCTUnwrap(frames["sampleCount"]), 0)
+    XCTAssertEqual(try XCTUnwrap(frames["actualMenuIntent"]), 1)
+    XCTAssertEqual(try XCTUnwrap(frames["lastWidth"]), 280, accuracy: 3)
+    XCTAssertEqual(try XCTUnwrap(frames["lastY"]), safeTop + extraTop, accuracy: 3)
+    XCTAssertEqual(app.staticTexts["menu-open"].frame.minY, safeTop + extraTop + 16, accuracy: 3)
+    if hasBottomControl {
+      let bottom = app.buttons["menu-bottom"]
+      assertHittable(bottom)
+      XCTAssertEqual(bottom.frame.maxY, app.frame.height - safeBottom - 16, accuracy: 3)
+    }
+
+    let screenshot = app.screenshot()
+    let attachment = XCTAttachment(screenshot: screenshot)
+    attachment.name = "Real raster background with explicit extra top \(extraTop)"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+    let top = try pixelRGBA(screenshot, x: 100, y: 8)
+    let middle = try pixelRGBA(screenshot, x: 240, y: app.frame.height * 0.5)
+    let bottom = try pixelRGBA(screenshot, x: 100, y: app.frame.height - 8)
+    XCTAssertGreaterThan(top[0], 240)
+    XCTAssertLessThan(top[1], 16)
+    XCTAssertLessThan(top[2], 16)
+    XCTAssertLessThan(middle[0], 16)
+    XCTAssertGreaterThan(middle[1], 240)
+    XCTAssertLessThan(middle[2], 16)
+    XCTAssertLessThan(bottom[0], 16)
+    XCTAssertLessThan(bottom[1], 16)
+    XCTAssertGreaterThan(bottom[2], 240)
+    XCTAssertGreaterThan(top[3], 240)
+    XCTAssertGreaterThan(middle[3], 240)
+    XCTAssertGreaterThan(bottom[3], 240)
+
+    app.buttons["menu-home"].tap()
+    assertMenuClosed(in: app)
+  }
+
   private func observeRelease(in app: XCUIApplication, name: String) throws -> [String: Double] {
     let frames = try frameMeasurement(in: app)
     let intent = app.staticTexts["menu-intent"]
@@ -461,6 +522,17 @@ final class SideMenuFlowTests: XCTestCase {
     x: CGFloat,
     y: CGFloat
   ) throws {
+    let rgba = try pixelRGBA(screenshot, x: x, y: y)
+    XCTAssertGreaterThan(rgba[0], 240, "Background pixel at (\(x), \(y)): \(rgba)")
+    XCTAssertLessThan(rgba[1], 16, "Background pixel at (\(x), \(y)): \(rgba)")
+    XCTAssertGreaterThan(rgba[2], 240, "Background pixel at (\(x), \(y)): \(rgba)")
+  }
+
+  private func pixelRGBA(
+    _ screenshot: XCUIScreenshot,
+    x: CGFloat,
+    y: CGFloat
+  ) throws -> [UInt8] {
     let image = screenshot.image
     let source = try XCTUnwrap(image.cgImage)
     let scale = CGFloat(source.width) / image.size.width
@@ -481,9 +553,7 @@ final class SideMenuFlowTests: XCTestCase {
       )
       context.draw(pixel, in: CGRect(x: 0, y: 0, width: 1, height: 1))
     }
-    XCTAssertGreaterThan(rgba[0], 240, "Background pixel at (\(x), \(y)): \(rgba)")
-    XCTAssertLessThan(rgba[1], 16, "Background pixel at (\(x), \(y)): \(rgba)")
-    XCTAssertGreaterThan(rgba[2], 240, "Background pixel at (\(x), \(y)): \(rgba)")
+    return rgba
   }
 
   private func assertDirectionalMenu(arguments: [String], fromRight: Bool) throws {

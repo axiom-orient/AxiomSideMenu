@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct SideMenuModifier<Menu: View, Background: ShapeStyle>: ViewModifier {
+struct SideMenuModifier<Menu: View, Background: View>: ViewModifier {
   @Binding private var isPresented: Bool
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.layoutDirection) private var layoutDirection
@@ -8,7 +8,8 @@ struct SideMenuModifier<Menu: View, Background: ShapeStyle>: ViewModifier {
 
   private let edge: HorizontalEdge
   private let width: CGFloat
-  private let background: Background
+  private let contentInsets: EdgeInsets
+  private let background: () -> Background
   private let menu: () -> Menu
 
   @State private var hostSize: CGSize = .zero
@@ -28,12 +29,14 @@ struct SideMenuModifier<Menu: View, Background: ShapeStyle>: ViewModifier {
     isPresented: Binding<Bool>,
     edge: HorizontalEdge,
     width: CGFloat,
-    background: Background,
+    contentInsets: EdgeInsets,
+    @ViewBuilder background: @escaping () -> Background,
     @ViewBuilder menu: @escaping () -> Menu
   ) {
     self._isPresented = isPresented
     self.edge = edge
     self.width = width
+    self.contentInsets = contentInsets
     self.background = background
     self.menu = menu
   }
@@ -97,6 +100,7 @@ struct SideMenuModifier<Menu: View, Background: ShapeStyle>: ViewModifier {
       }
       .onChange(of: edge) { _, _ in cancelForLayoutChange() }
       .onChange(of: context.width) { _, _ in cancelForLayoutChange() }
+      .onChange(of: resolvedContentInsets) { _, _ in cancelForLayoutChange() }
       .onChange(of: layoutDirection) { _, _ in cancelForLayoutChange() }
       .onChange(of: reduceMotion) { _, isReduced in
         if isReduced {
@@ -144,6 +148,13 @@ struct SideMenuModifier<Menu: View, Background: ShapeStyle>: ViewModifier {
 
   private var alignment: Alignment { edge == .leading ? .leading : .trailing }
 
+  private var resolvedContentInsets: EdgeInsets {
+    SideMenuGeometry.resolvedContentInsets(
+      requested: contentInsets,
+      available: CGSize(width: context.width, height: hostSize.height)
+    )
+  }
+
   private var isOpeningDragActive: Bool {
     isRecognizingOpening && openingAdmission?.isHorizontal == true
       && openingAdmission?.context == context
@@ -183,14 +194,29 @@ struct SideMenuModifier<Menu: View, Background: ShapeStyle>: ViewModifier {
 
       menu()
         .disabled(!isPresented)
+        .padding(resolvedContentInsets)
         .frame(width: width, height: hostSize.height, alignment: .topLeading)
         .background {
-          // Only the panel's fill extends beyond the offered safe region.
-          Rectangle()
-            .fill(background)
+          ZStack {
+            // Expand the background's proposal before sizing an image. The
+            // content above keeps its original offered safe-region proposal.
+            GeometryReader { geometry in
+              background()
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .clipped()
+            }
             .ignoresSafeArea(.container, edges: .vertical)
-            .onTapGesture {}
-            .accessibilityHidden(true)
+            .disabled(true)
+            .allowsHitTesting(false)
+
+            // Absorb blank panel taps independently of the decorative view.
+            Rectangle()
+              .fill(.clear)
+              .contentShape(Rectangle())
+              .ignoresSafeArea(.container, edges: .vertical)
+              .onTapGesture {}
+          }
+          .accessibilityHidden(true)
         }
         .shadow(color: .black.opacity(0.2), radius: 16)
         .offset(

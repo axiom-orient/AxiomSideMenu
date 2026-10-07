@@ -59,6 +59,22 @@ enum SideMenuGeometry {
     return min(max(0, requested), available)
   }
 
+  static func resolvedContentInsets(requested: EdgeInsets, available: CGSize) -> EdgeInsets {
+    let width = available.width.isFinite ? max(0, available.width) : 0
+    let height = available.height.isFinite ? max(0, available.height) : 0
+    func resolve(_ value: CGFloat, limit: CGFloat) -> CGFloat {
+      value.isFinite ? min(max(0, value), limit) : 0
+    }
+    let leading = resolve(requested.leading, limit: width)
+    let top = resolve(requested.top, limit: height)
+    return EdgeInsets(
+      top: top,
+      leading: leading,
+      bottom: resolve(requested.bottom, limit: height - top),
+      trailing: resolve(requested.trailing, limit: width - leading)
+    )
+  }
+
   static func inwardDirection(edge: HorizontalEdge, layoutDirection: LayoutDirection) -> CGFloat {
     let isLeftEdge = (edge == .leading) == (layoutDirection == .leftToRight)
     return isLeftEdge ? 1 : -1

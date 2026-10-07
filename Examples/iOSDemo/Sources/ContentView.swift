@@ -64,7 +64,21 @@ struct ContentView: View {
 
   @ViewBuilder
   private var menuHost: some View {
-    if configuration.showsGeometryDiagnostics {
+    if configuration.usesImageBackground {
+      hostContent
+        .sideMenu(
+          isPresented: $isMenuOpen,
+          edge: configuration.edge,
+          width: configuration.width,
+          contentInsets: configuration.contentInsets
+        ) {
+          menuContent
+        } background: {
+          Image(uiImage: Self.diagnosticBackgroundImage)
+            .resizable()
+            .interpolation(.none)
+        }
+    } else if configuration.showsGeometryDiagnostics {
       hostContent
         .sideMenu(
           isPresented: $isMenuOpen,
@@ -291,6 +305,21 @@ struct ContentView: View {
     case openMenu
     case closeMenu
   }
+
+  /// A real raster image whose three bands expose safe-region-only stretching.
+  /// It is created only by the demo fixture and is never a library fallback.
+  private static let diagnosticBackgroundImage: UIImage = {
+    let format = UIGraphicsImageRendererFormat()
+    format.scale = 1
+    format.opaque = true
+    return UIGraphicsImageRenderer(size: CGSize(width: 32, height: 96), format: format).image {
+      context in
+      for (index, color) in [UIColor.red, UIColor.green, UIColor.blue].enumerated() {
+        color.setFill()
+        context.fill(CGRect(x: 0, y: CGFloat(index) * 32, width: 32, height: 32))
+      }
+    }
+  }()
 }
 
 private struct DemoConfiguration {
@@ -326,6 +355,17 @@ private struct DemoConfiguration {
 
   var usesShortMenu: Bool {
     arguments.contains("--short-menu")
+  }
+
+  var usesImageBackground: Bool {
+    arguments.contains("--image-background")
+  }
+
+  var contentInsets: EdgeInsets {
+    EdgeInsets(
+      top: arguments.contains("--extra-top-reservation") ? 44 : 0,
+      leading: 0, bottom: 0, trailing: 0
+    )
   }
 
   var capturesHeldFrames: Bool {

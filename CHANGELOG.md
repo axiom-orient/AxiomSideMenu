@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2 — 2026-10-07
+
+- Added a separate View background closure for panel-wide image and custom backgrounds. The library sizes and clips them through the status and home-indicator bands.
+- Added managed contentInsets for optional space inside the safe content region, without shrinking the background.
+- Preserved both existing public modifier signatures and gesture behavior.
+- Documented root attachment, measured navigation-bar reservations, and removal of 0.1.0 negative-inset workarounds.
+
 ## 0.1.1 — 2026-10-07
 
 - Opening and closing drags now directly track the panel's actual position.

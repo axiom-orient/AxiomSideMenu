@@ -50,4 +50,36 @@ struct SideMenuGeometryTests {
     #expect(SideMenuGeometry.presentationOffset(progress: 0.5, width: 280, edge: .leading) < 0)
     #expect(SideMenuGeometry.presentationOffset(progress: 0.5, width: 280, edge: .trailing) > 0)
   }
+
+  @Test
+  func contentInsetsReserveOnlyTheirAdditionalRequestedSpace() {
+    let requested = EdgeInsets(top: 52, leading: 12, bottom: 8, trailing: 14)
+    #expect(
+      SideMenuGeometry.resolvedContentInsets(
+        requested: requested, available: CGSize(width: 280, height: 800)) == requested)
+  }
+
+  @Test
+  func contentInsetsCannotProduceNegativeOrNonFiniteLayout() {
+    let requested = EdgeInsets(top: .nan, leading: -20, bottom: .infinity, trailing: -.infinity)
+    let available = CGSize(width: 280, height: 800)
+    let first = SideMenuGeometry.resolvedContentInsets(requested: requested, available: available)
+    let second = SideMenuGeometry.resolvedContentInsets(requested: requested, available: available)
+    #expect(first == second)
+    #expect(
+      SideMenuGeometry.resolvedContentInsets(
+        requested: requested, available: available) == EdgeInsets())
+  }
+
+  @Test
+  func oversizedInsetsFitTheOfferedContentRegion() {
+    let requested = EdgeInsets(top: 700, leading: 250, bottom: 200, trailing: 100)
+    #expect(
+      SideMenuGeometry.resolvedContentInsets(
+        requested: requested, available: CGSize(width: 280, height: 800))
+        == EdgeInsets(top: 700, leading: 250, bottom: 100, trailing: 30))
+    #expect(
+      SideMenuGeometry.resolvedContentInsets(
+        requested: requested, available: CGSize(width: .nan, height: -.infinity)) == EdgeInsets())
+  }
 }

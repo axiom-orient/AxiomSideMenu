@@ -33,3 +33,11 @@ The [interaction controller](https://github.com/jonkykong/SideMenu/blob/8bd4fd12
 - Logical edge selection is converted into the physical direction for both LTR and RTL layouts.
 
 The references do not certify AxiomSideMenu behavior. Its own build, tests, real frame observations, and runtime checks provide that evidence.
+
+## Safe content and custom backgrounds (0.1.2)
+
+Apple's [WWDC21 safe-area explanation](https://developer.apple.com/videos/play/wwdc2021/10021/) distinguishes content that avoids system chrome from backgrounds that extend through it. Its examples apply safe-area expansion to the background independently of foreground controls.
+
+[`GeometryProxy.safeAreaInsets`](https://developer.apple.com/documentation/swiftui/geometryproxy/safeareainsets) describes the current container's insets, rather than a universal status-bar or navigation-bar height. [`ignoresSafeArea`](https://developer.apple.com/documentation/swiftui/view/ignoressafearea(_:edges:)) expands the region proposed to a view. These contracts guide the separate full-panel background geometry and the safe content frame.
+
+Additional navigation-bar reservation is explicit and uses an app-measured height. The library does not query a global window, assume a fixed bar height, or compensate for an ancestor that has already discarded safe-area information. Runtime image-band and content-frame tests qualify the implementation.
