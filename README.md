@@ -1,62 +1,108 @@
 # AxiomSideMenu
 
-A small SwiftUI side drawer for iOS, macOS, and Mac Catalyst. It uses Swift 6 language mode and has no package dependencies.
+A small SwiftUI drawer with one app-owned presentation binding. No external dependencies. Swift 6 language mode; iOS 17+, macOS 14+, and Mac Catalyst 17+.
 
-## Add the package
+## Installation
 
-In Xcode, choose **File → Add Package Dependencies → Add Local…** and select this folder.
+In Xcode, add this package URL and select version **0.1.0** or later:
 
-For another Swift package, add a local dependency:
+    https://github.com/axiom-orient/AxiomSideMenu.git
 
-    .package(path: "../AxiomSideMenu")
+In a Swift package:
 
-Then add AxiomSideMenu to the app target's dependencies and import the module.
+~~~swift
+ dependencies: [
+   .package(url: "https://github.com/axiom-orient/AxiomSideMenu.git", from: "0.1.0")
+ ],
+ targets: [
+   .target(
+     name: "YourApp",
+     dependencies: [.product(name: "AxiomSideMenu", package: "AxiomSideMenu")]
+   )
+ ]
+~~~
 
-## Use it
+For local development, use .package(path: "../AxiomSideMenu") or Xcode's Add Local option.
 
-    import AxiomSideMenu
-    import SwiftUI
+## Usage
 
-    struct ContentView: View {
-        @State private var isMenuOpen = false
+This iOS example attaches the menu outside NavigationStack so the drawer covers the navigation bar:
 
-        var body: some View {
-            NavigationStack {
-                Text("Home")
-                    .navigationTitle("Home")
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button("Menu", systemImage: "line.3.horizontal") {
-                                isMenuOpen = true
-                            }
-                        }
-                    }
+~~~swift
+import AxiomSideMenu
+import SwiftUI
+
+struct ContentView: View {
+  @State private var isMenuOpen = false
+
+  var body: some View {
+    NavigationStack {
+      Text("Home")
+        .navigationTitle("Home")
+        .toolbar {
+          ToolbarItem(placement: .topBarLeading) {
+            Button("Menu", systemImage: "line.3.horizontal") {
+              isMenuOpen = true
             }
-            .sideMenu(isPresented: $isMenuOpen, width: 280) {
-                VStack(alignment: .leading, spacing: 16) {
-                    Button("Home") { isMenuOpen = false }
-                    Button("Settings") { isMenuOpen = false }
-                }
-                .padding()
-            }
+          }
         }
     }
+    .sideMenu(isPresented: $isMenuOpen, width: 280) {
+      VStack(alignment: .leading, spacing: 16) {
+        Button("Home") { isMenuOpen = false }
+        Button("Settings") { isMenuOpen = false }
+        Spacer()
+      }
+      .padding()
+    }
+  }
+}
+~~~
 
-The isPresented binding owns the open state. A swipe inward from the selected edge opens the menu. Dragging the menu outward, tapping the dimmed area, or using the accessibility escape action closes it. Vertical scrolling inside the menu remains available.
+## App commands and agent actions
 
-Use edge: .trailing to open from the other side. Width is a preferred width and is clamped to the available space.
+Any app action can close the menu by setting its binding to false. Keep a shared presentation model on the main actor if an agent or tool handler needs to control it:
 
-## Example
+~~~swift
+import Observation
 
-Open Examples/iOSDemo/AxiomSideMenuDemo.xcodeproj for a runnable iOS example. It includes a UI test for opening by button or edge swipe and dismissing from the dimmed area.
+@MainActor
+@Observable
+final class SidebarState {
+  var isPresented = false
 
-## Requirements
+  func close() {
+    isPresented = false
+  }
+}
+~~~
 
-- Swift 6.0 or later
-- iOS 17 or later
-- macOS 14 or later
-- Mac Catalyst 17 or later
+Bind your view with .sideMenu(isPresented: $sidebar.isPresented). An agent action running on another actor can call await sidebar.close(). Caller state changes supersede an in-flight drawer gesture. The app continues to own its routing and agent integration.
+
+Use edge: .leading or edge: .trailing to select the logical horizontal edge. In a left-to-right layout these are the left and right sides respectively; right-to-left layouts reverse them.
+
+## Behavior
+
+- Your binding owns the committed open state. The menu does not own routing or selection.
+- Swipe inward from the first 28 points of the chosen edge to open. Drag outward or tap the dimmed area to close. Buttons can change the binding directly.
+- Use edge: .trailing for the opposite logical edge. Both edges follow the host's layout direction.
+- Width is capped at the host view's width. Negative or NaN widths produce zero width; positive infinity uses the available width. With resolved width zero, the host remains interactive and no menu is mounted; the caller retains its presentation intent.
+- The overlay preserves the host view's layout. Attach it to the root view whose area should contain the drawer.
+- Menu content is mounted only while presented. Keep persistent selection, routes, and data in app-owned state outside the menu; local menu view state resets after dismissal.
+- The menu provides a labeled dismiss control and an accessibility escape action. Reduce Motion disables animated travel.
+
+An edge-opening gesture shares the edge with native back navigation and horizontal content gestures. Place the drawer at your navigation root or use a different edge when that region belongs to another interaction.
+
+## Example and verification
+
+Open Examples/iOSDemo/AxiomSideMenuDemo.xcodeproj. The checked-in Xcode project directly references this package; XcodeGen is needed only to regenerate it from project.yml.
+
+See [verification evidence](docs/VERIFICATION.md) for the tested revision, commands, runtime scenarios, and platform limits. The minimum compiler and OS requirements are distinct from the toolchain and runtimes actually tested.
+
+## Version pinning and recovery
+
+Use .package(url: "https://github.com/axiom-orient/AxiomSideMenu.git", exact: "0.1.0") to pin the initial release. For a future upgrade, retain your previously tested version so you can restore that requirement if needed. Published tags are immutable.
 
 ## License
 
-MIT. See LICENSE.
+MIT. See [LICENSE](LICENSE).

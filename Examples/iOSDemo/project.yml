@@ -1,0 +1,52 @@
+name: AxiomSideMenuDemo
+
+options:
+  bundleIdPrefix: com.axiomorient
+  deploymentTarget:
+    iOS: "17.0"
+
+packages:
+  AxiomSideMenu:
+    path: ../..
+
+targets:
+  AxiomSideMenuDemo:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    dependencies:
+      - package: AxiomSideMenu
+        product: AxiomSideMenu
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.axiomorient.AxiomSideMenuDemo
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        SUPPORTS_MACCATALYST: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  AxiomSideMenuDemoUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests
+    dependencies:
+      - target: AxiomSideMenuDemo
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.axiomorient.AxiomSideMenuDemoUITests
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  AxiomSideMenuDemo:
+    build:
+      targets:
+        AxiomSideMenuDemo: all
+        AxiomSideMenuDemoUITests: [test]
+    test:
+      targets:
+        - AxiomSideMenuDemoUITests
