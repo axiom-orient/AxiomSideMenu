@@ -12,11 +12,23 @@ struct SideMenuDragContext: Equatable, Sendable {
 struct SideMenuDragSession: Equatable, Sendable {
   let context: SideMenuDragContext
   let isHorizontal: Bool
+  let recognition: UInt
+  private let startingProgress: CGFloat
+  private let grabTranslation: CGFloat
   private var translation: CGFloat
 
-  init(context: SideMenuDragContext, translation: CGSize) {
+  init(
+    context: SideMenuDragContext,
+    translation: CGSize,
+    startingProgress: CGFloat? = nil,
+    grabTranslation: CGFloat = 0,
+    recognition: UInt = 0
+  ) {
     self.context = context
     self.isHorizontal = abs(translation.width) > abs(translation.height)
+    self.startingProgress = startingProgress ?? (context.isPresented ? 1 : 0)
+    self.grabTranslation = grabTranslation
+    self.recognition = recognition
     self.translation = translation.width
   }
 
@@ -24,26 +36,20 @@ struct SideMenuDragSession: Equatable, Sendable {
     self.translation = translation.width
   }
 
-  func offset(in current: SideMenuDragContext) -> CGFloat {
-    guard isHorizontal, context.width > 0, context == current else { return 0 }
-    return SideMenuGeometry.dragOffset(
-      translation: translation,
-      isOpen: context.isPresented,
-      width: context.width,
-      inwardDirection: context.inwardDirection
-    )
+  func progress(in current: SideMenuDragContext) -> CGFloat {
+    guard isHorizontal, context.width > 0, context == current else {
+      return context.isPresented ? 1 : 0
+    }
+    let displacement = (translation - grabTranslation) * context.inwardDirection
+    return min(1, max(0, startingProgress + displacement / context.width))
   }
 
-  func target(in current: SideMenuDragContext, predictedTranslation: CGFloat) -> Bool? {
+  func target(in current: SideMenuDragContext) -> Bool? {
     guard isHorizontal, context.width > 0, context == current else { return nil }
-    let shouldToggle = SideMenuGeometry.shouldToggle(
-      translation: translation,
-      predictedTranslation: predictedTranslation,
-      isOpen: context.isPresented,
-      threshold: context.width * 0.3,
-      inwardDirection: context.inwardDirection
-    )
-    return shouldToggle ? !context.isPresented : context.isPresented
+    let finalProgress = progress(in: current)
+    if finalProgress > 0.5 { return true }
+    if finalProgress < 0.5 { return false }
+    return context.isPresented
   }
 }
 
@@ -58,6 +64,15 @@ enum SideMenuGeometry {
     return isLeftEdge ? 1 : -1
   }
 
+  /// SwiftUI mirrors offset presentation with the layout direction. Gesture
+  /// coordinates remain physical, so their inward direction must not be reused.
+  static func presentationOffset(progress: CGFloat, width: CGFloat, edge: HorizontalEdge)
+    -> CGFloat
+  {
+    let logicalInwardDirection: CGFloat = edge == .leading ? 1 : -1
+    return (progress - 1) * width * logicalInwardDirection
+  }
+
   static func canStartDrag(
     startX: CGFloat,
     availableWidth: CGFloat,
@@ -69,35 +84,86 @@ enum SideMenuGeometry {
     return distanceFromEdge <= 28
   }
 
-  static func dragOffset(
-    translation: CGFloat,
-    isOpen: Bool,
-    width: CGFloat,
-    inwardDirection: CGFloat
-  ) -> CGFloat {
-    let distanceTowardCenter = translation * inwardDirection
-    let boundedDistance: CGFloat
-    if isOpen {
-      boundedDistance = max(-width, min(0, distanceTowardCenter))
-    } else {
-      boundedDistance = min(width, max(0, distanceTowardCenter))
-    }
-    return boundedDistance * inwardDirection
+  static func canDragPanel(
+    context: SideMenuDragContext,
+    progress: CGFloat,
+    isSettling: Bool,
+    isRecognizingPanel: Bool,
+    isOpeningFromContent: Bool
+  ) -> Bool {
+    guard context.width > 0, !isOpeningFromContent else { return false }
+    return context.isPresented || isRecognizingPanel || (isSettling && progress > 0)
   }
 
-  static func shouldToggle(
-    translation: CGFloat,
-    predictedTranslation: CGFloat,
-    isOpen: Bool,
-    threshold: CGFloat,
-    inwardDirection: CGFloat
-  ) -> Bool {
-    let current = translation * inwardDirection
-    let predicted = predictedTranslation * inwardDirection
-    let threshold = max(0, threshold)
-    if isOpen {
-      return min(current, predicted) < -threshold
+}
+
+/// Local presentation state, independent of the caller's committed binding.
+/// Sampling the same curve for rendering and recognition preserves the grab
+/// position when a user interrupts a settling animation.
+struct SideMenuPresentation: Equatable, Sendable {
+  private(set) var progress: CGFloat = 0
+  private(set) var motion: SideMenuSettlingMotion?
+
+  func progress(at instant: ContinuousClock.Instant = .now) -> CGFloat {
+    motion?.progress(at: instant) ?? progress
+  }
+
+  func recognize(
+    context: SideMenuDragContext,
+    translation: CGSize,
+    recognition: UInt,
+    at instant: ContinuousClock.Instant = .now
+  ) -> SideMenuDragSession {
+    let isSettling = motion.map { instant < $0.deadline } ?? false
+    return SideMenuDragSession(
+      context: context,
+      translation: translation,
+      startingProgress: progress(at: instant),
+      grabTranslation: isSettling ? translation.width : 0,
+      recognition: recognition
+    )
+  }
+
+  mutating func track(_ value: CGFloat) {
+    progress = min(1, max(0, value))
+    motion = nil
+  }
+
+  mutating func settle(
+    to isPresented: Bool,
+    animated: Bool,
+    at instant: ContinuousClock.Instant = .now
+  ) {
+    let target: CGFloat = isPresented ? 1 : 0
+    if animated, motion?.target == target { return }
+    let start = progress(at: instant)
+    if animated && start != target {
+      motion = SideMenuSettlingMotion(start: start, target: target, startedAt: instant)
+      progress = target
+    } else {
+      track(target)
     }
-    return max(current, predicted) > threshold
+  }
+
+  mutating func finish(_ completed: SideMenuSettlingMotion) {
+    guard motion == completed else { return }
+    track(completed.target)
+  }
+}
+
+struct SideMenuSettlingMotion: Equatable, Sendable {
+  let start: CGFloat
+  let target: CGFloat
+  let startedAt: ContinuousClock.Instant
+  let duration: Duration = .milliseconds(280)
+
+  var deadline: ContinuousClock.Instant { startedAt.advanced(by: duration) }
+
+  func progress(at instant: ContinuousClock.Instant) -> CGFloat {
+    let elapsed = startedAt.duration(to: instant).components
+    let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+    let time = min(1, max(0, seconds / 0.28))
+    let easedTime = time * time * (3 - 2 * time)
+    return start + (target - start) * CGFloat(easedTime)
   }
 }

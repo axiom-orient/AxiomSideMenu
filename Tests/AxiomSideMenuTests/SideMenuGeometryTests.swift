@@ -1,3 +1,4 @@
+import SwiftUI
 import Testing
 
 @testable import AxiomSideMenu
@@ -11,90 +12,42 @@ struct SideMenuGeometryTests {
     #expect(SideMenuGeometry.resolvedWidth(requested: .nan, available: 400) == 0)
   }
 
-  @Test
-  func openingDragTracksOnlyMovementTowardTheCenter() {
-    #expect(
-      SideMenuGeometry.dragOffset(
-        translation: 90,
-        isOpen: false,
-        width: 280,
-        inwardDirection: 1
-      ) == 90
-    )
-    #expect(
-      SideMenuGeometry.dragOffset(
-        translation: -90,
-        isOpen: false,
-        width: 280,
-        inwardDirection: 1
-      ) == 0
-    )
-    #expect(
-      SideMenuGeometry.dragOffset(
-        translation: -400,
-        isOpen: false,
-        width: 280,
-        inwardDirection: -1
-      ) == -280
-    )
+  @Test(arguments: [false, true], [CGFloat(-1), CGFloat(1)])
+  func liveProgressStaysInsideThePanel(isPresented: Bool, direction: CGFloat) {
+    let context = SideMenuDragContext(
+      isPresented: isPresented, width: 280, inwardDirection: direction, generation: 0)
+    let fullOpening = SideMenuDragSession(
+      context: context, translation: CGSize(width: 400 * direction, height: 0))
+    let fullClosing = SideMenuDragSession(
+      context: context, translation: CGSize(width: -400 * direction, height: 0))
+    #expect(fullOpening.progress(in: context) == 1)
+    #expect(fullClosing.progress(in: context) == 0)
+  }
+
+  @Test(arguments: [CGFloat(-1), CGFloat(1)])
+  func shortActualMovementCannotOpenTheMenu(direction: CGFloat) {
+    let context = SideMenuDragContext(
+      isPresented: false, width: 280, inwardDirection: direction, generation: 0)
+    let session = SideMenuDragSession(
+      context: context, translation: CGSize(width: 40 * direction, height: 0))
+    #expect(session.target(in: context) == false)
   }
 
   @Test
-  func closingDragTracksOnlyMovementAwayFromTheCenter() {
-    #expect(
-      SideMenuGeometry.dragOffset(
-        translation: -90,
-        isOpen: true,
-        width: 280,
-        inwardDirection: 1
-      ) == -90
-    )
-    #expect(
-      SideMenuGeometry.dragOffset(
-        translation: 90,
-        isOpen: true,
-        width: 280,
-        inwardDirection: 1
-      ) == 0
-    )
-    #expect(
-      SideMenuGeometry.dragOffset(
-        translation: 400,
-        isOpen: true,
-        width: 280,
-        inwardDirection: -1
-      ) == 280
-    )
+  func presentationOffsetsUseLogicalEdgesBeforeSwiftUIMirrorsThem() {
+    #expect(SideMenuGeometry.presentationOffset(progress: 0, width: 280, edge: .leading) == -280)
+    #expect(SideMenuGeometry.presentationOffset(progress: 0, width: 280, edge: .trailing) == 280)
+    #expect(SideMenuGeometry.presentationOffset(progress: 0.5, width: 280, edge: .leading) == -140)
+    #expect(SideMenuGeometry.presentationOffset(progress: 0.5, width: 280, edge: .trailing) == 140)
+    #expect(SideMenuGeometry.presentationOffset(progress: 1, width: 280, edge: .leading) == 0)
+    #expect(SideMenuGeometry.presentationOffset(progress: 1, width: 280, edge: .trailing) == 0)
   }
 
   @Test
-  func predictedDragDistanceCanOpenOrCloseTheMenu() {
-    #expect(
-      SideMenuGeometry.shouldToggle(
-        translation: 35,
-        predictedTranslation: 100,
-        isOpen: false,
-        threshold: 84,
-        inwardDirection: 1
-      )
-    )
-    #expect(
-      SideMenuGeometry.shouldToggle(
-        translation: -40,
-        predictedTranslation: -100,
-        isOpen: true,
-        threshold: 84,
-        inwardDirection: 1
-      )
-    )
-    #expect(
-      !SideMenuGeometry.shouldToggle(
-        translation: 40,
-        predictedTranslation: 50,
-        isOpen: false,
-        threshold: 84,
-        inwardDirection: 1
-      )
-    )
+  func rightToLeftGestureDirectionsStayPhysicalAndSeparateFromPresentation() {
+    #expect(SideMenuGeometry.inwardDirection(edge: .leading, layoutDirection: .rightToLeft) == -1)
+    #expect(SideMenuGeometry.inwardDirection(edge: .trailing, layoutDirection: .rightToLeft) == 1)
+    #expect(SideMenuGeometry.presentationOffset(progress: 0.5, width: 280, edge: .leading) < 0)
+    #expect(SideMenuGeometry.presentationOffset(progress: 0.5, width: 280, edge: .trailing) > 0)
   }
 }

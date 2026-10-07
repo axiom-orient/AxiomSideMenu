@@ -14,4 +14,21 @@ struct SideMenuAPITests {
 
     _ = host
   }
+
+  @MainActor
+  @Test
+  func panelBackgroundAcceptsAColorOrGradient() {
+    _ = Text("Home")
+      .sideMenu(isPresented: .constant(false), background: Color.purple) {
+        Text("Menu")
+      }
+    _ = Text("Home")
+      .sideMenu(
+        isPresented: .constant(false),
+        edge: .trailing,
+        background: LinearGradient(colors: [.pink, .purple], startPoint: .top, endPoint: .bottom)
+      ) {
+        Text("Menu")
+      }
+  }
 }

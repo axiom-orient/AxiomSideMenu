@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1 — 2026-10-07
+
+- Opening and closing drags now directly track the panel's actual position.
+- Release uses the final visible midpoint. Exact halfway retains the starting committed state; velocity and prediction do not bypass the rule.
+- Button and command changes settle from the current displayed position. Interrupted motion can be grabbed and reversed.
+- Panel content is aligned to the top of the offered safe region without duplicate safe-area padding.
+- Added a `background:` ShapeStyle overload for the whole panel, including the status and home-indicator bands. The original API is preserved.
+- Added native frame, exact safe-area, screenshot-pixel, and normal-mode regression checks.
+
 ## 0.1.0 — 2026-10-07
 
 - Initial Swift 6 SwiftUI package with no external dependencies.
