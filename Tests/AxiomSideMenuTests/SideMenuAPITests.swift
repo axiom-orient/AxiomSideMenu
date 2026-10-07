@@ -77,6 +77,54 @@ struct SideMenuAPITests {
   }
 
   @MainActor
+  @Test
+  func rootContainerInfersTheDefaultBackgroundForNavigationContent() {
+    let container = SideMenu(isPresented: .constant(false)) {
+      NavigationStack {
+        Text("Home").navigationTitle("Home")
+      }
+    } menu: {
+      Text("Menu")
+    }
+    _ = container.body
+  }
+
+  @MainActor
+  @Test
+  func rootContainerAcceptsIntrinsicMainContentAndLayoutOptions() {
+    let container = SideMenu(
+      isPresented: .constant(false),
+      edge: .trailing,
+      width: 320,
+      contentInsets: EdgeInsets(top: 52, leading: 12, bottom: 8, trailing: 12)
+    ) {
+      Text("Intrinsic home")
+    } menu: {
+      VStack {
+        Text("Menu")
+        Button("Close") {}
+      }
+    }
+    _ = container.body
+  }
+
+  @MainActor
+  @Test
+  func rootContainerInfersAnImageBackgroundWithAdditionalInsets() {
+    let container = SideMenu(
+      isPresented: .constant(false),
+      contentInsets: EdgeInsets(top: 52, leading: 0, bottom: 0, trailing: 0)
+    ) {
+      Text("Home")
+    } menu: {
+      Text("Menu")
+    } background: {
+      Image(systemName: "photo").resizable().scaledToFill()
+    }
+    _ = container.body
+  }
+
+  @MainActor
   private func useOriginal<Result: View>(
     _ modifier: (Binding<Bool>, HorizontalEdge, CGFloat, @escaping () -> Text) -> Result
   ) {

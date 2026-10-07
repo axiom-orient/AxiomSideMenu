@@ -53,6 +53,13 @@ struct SideMenuDragSession: Equatable, Sendable {
   }
 }
 
+/// System guides and app spacing have different roles even when their sums
+/// match. Track their normalized pair to invalidate either layout change.
+struct SideMenuContentLayout: Equatable {
+  let systemInsets: EdgeInsets
+  let contentInsets: EdgeInsets
+}
+
 enum SideMenuGeometry {
   static func resolvedWidth(requested: CGFloat, available: CGFloat) -> CGFloat {
     guard !requested.isNaN, available.isFinite, available > 0 else { return 0 }
@@ -72,6 +79,69 @@ enum SideMenuGeometry {
       leading: leading,
       bottom: resolve(requested.bottom, limit: height - top),
       trailing: resolve(requested.trailing, limit: width - leading)
+    )
+  }
+
+  static func restoredSafeAreaInsets(
+    outer: EdgeInsets,
+    inner: EdgeInsets,
+    available: CGSize
+  ) -> EdgeInsets {
+    func difference(_ outerValue: CGFloat, _ innerValue: CGFloat) -> CGFloat {
+      let outside = outerValue.isFinite ? max(0, outerValue) : 0
+      let inside = innerValue.isFinite ? max(0, innerValue) : 0
+      return max(0, outside - inside)
+    }
+    return resolvedContentInsets(
+      requested: EdgeInsets(
+        top: difference(outer.top, inner.top),
+        leading: difference(outer.leading, inner.leading),
+        bottom: difference(outer.bottom, inner.bottom),
+        trailing: difference(outer.trailing, inner.trailing)
+      ),
+      available: available
+    )
+  }
+
+  static func panelSafeAreaInsets(
+    canvas: CGSize,
+    containerInsets: EdgeInsets,
+    panelWidth: CGFloat,
+    edge: HorizontalEdge,
+    layoutDirection: LayoutDirection
+  ) -> EdgeInsets {
+    let width = resolvedWidth(requested: panelWidth, available: canvas.width)
+    guard width > 0 else { return .init() }
+    let safe = resolvedContentInsets(requested: containerInsets, available: canvas)
+    let isLeftToRight = layoutDirection == .leftToRight
+    let safeLeft = isLeftToRight ? safe.leading : safe.trailing
+    let safeRight = isLeftToRight ? safe.trailing : safe.leading
+    let panelX =
+      inwardDirection(edge: edge, layoutDirection: layoutDirection) > 0
+      ? 0 : canvas.width - width
+    let left = min(width, max(0, safeLeft - panelX))
+    let right = min(width - left, max(0, panelX + width - (canvas.width - safeRight)))
+    return EdgeInsets(
+      top: safe.top,
+      leading: isLeftToRight ? left : right,
+      bottom: safe.bottom,
+      trailing: isLeftToRight ? right : left
+    )
+  }
+
+  static func resolvedContentLayout(
+    systemInsets: EdgeInsets,
+    contentInsets: EdgeInsets,
+    available: CGSize
+  ) -> SideMenuContentLayout {
+    let system = resolvedContentInsets(requested: systemInsets, available: available)
+    let remaining = CGSize(
+      width: max(0, available.width - system.leading - system.trailing),
+      height: max(0, available.height - system.top - system.bottom)
+    )
+    return SideMenuContentLayout(
+      systemInsets: system,
+      contentInsets: resolvedContentInsets(requested: contentInsets, available: remaining)
     )
   }
 

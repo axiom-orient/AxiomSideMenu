@@ -9,6 +9,7 @@ struct SideMenuModifier<Menu: View, Background: View>: ViewModifier {
   private let edge: HorizontalEdge
   private let width: CGFloat
   private let contentInsets: EdgeInsets
+  private let systemContentInsets: EdgeInsets
   private let background: () -> Background
   private let menu: () -> Menu
 
@@ -30,6 +31,7 @@ struct SideMenuModifier<Menu: View, Background: View>: ViewModifier {
     edge: HorizontalEdge,
     width: CGFloat,
     contentInsets: EdgeInsets,
+    systemContentInsets: EdgeInsets = .init(),
     @ViewBuilder background: @escaping () -> Background,
     @ViewBuilder menu: @escaping () -> Menu
   ) {
@@ -37,6 +39,7 @@ struct SideMenuModifier<Menu: View, Background: View>: ViewModifier {
     self.edge = edge
     self.width = width
     self.contentInsets = contentInsets
+    self.systemContentInsets = systemContentInsets
     self.background = background
     self.menu = menu
   }
@@ -100,7 +103,7 @@ struct SideMenuModifier<Menu: View, Background: View>: ViewModifier {
       }
       .onChange(of: edge) { _, _ in cancelForLayoutChange() }
       .onChange(of: context.width) { _, _ in cancelForLayoutChange() }
-      .onChange(of: resolvedContentInsets) { _, _ in cancelForLayoutChange() }
+      .onChange(of: contentLayout) { _, _ in cancelForLayoutChange() }
       .onChange(of: layoutDirection) { _, _ in cancelForLayoutChange() }
       .onChange(of: reduceMotion) { _, isReduced in
         if isReduced {
@@ -148,9 +151,10 @@ struct SideMenuModifier<Menu: View, Background: View>: ViewModifier {
 
   private var alignment: Alignment { edge == .leading ? .leading : .trailing }
 
-  private var resolvedContentInsets: EdgeInsets {
-    SideMenuGeometry.resolvedContentInsets(
-      requested: contentInsets,
+  private var contentLayout: SideMenuContentLayout {
+    SideMenuGeometry.resolvedContentLayout(
+      systemInsets: systemContentInsets,
+      contentInsets: contentInsets,
       available: CGSize(width: context.width, height: hostSize.height)
     )
   }
@@ -192,9 +196,7 @@ struct SideMenuModifier<Menu: View, Background: View>: ViewModifier {
         }
       }
 
-      menu()
-        .disabled(!isPresented)
-        .padding(resolvedContentInsets)
+      panelContent(layout: contentLayout)
         .frame(width: width, height: hostSize.height, alignment: .topLeading)
         .background {
           ZStack {
@@ -230,6 +232,19 @@ struct SideMenuModifier<Menu: View, Background: View>: ViewModifier {
     .accessibilityElement(children: .contain)
     .accessibilityAddTraits(.isModal)
     .accessibilityHidden(!isPresented)
+  }
+
+  @ViewBuilder
+  private func panelContent(layout: SideMenuContentLayout) -> some View {
+    if layout.systemInsets == EdgeInsets() {
+      // Advanced modifiers retain their original offered-safe-region layout.
+      menu().disabled(!isPresented).padding(layout.contentInsets)
+    } else {
+      menu()
+        .disabled(!isPresented)
+        .padding(layout.contentInsets)
+        .safeAreaPadding(layout.systemInsets)
+    }
   }
 
   private func dismissArea(width: CGFloat, progress: CGFloat) -> some View {

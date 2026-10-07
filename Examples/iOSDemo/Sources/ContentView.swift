@@ -11,6 +11,8 @@ struct ContentView: View {
   @State private var oppositeEdgeActionCount = 0
   @State private var isSheetPresented = false
   @State private var scheduledAction: ScheduledAction?
+  @State private var closesOnContactIsArmed = false
+  @State private var contactActionCount = 0
   @State private var measurement = MenuFrameMeasurement()
 
   private let configuration = DemoConfiguration()
@@ -23,9 +25,12 @@ struct ContentView: View {
       )
       .overlay(alignment: .bottom) {
         if configuration.showsGeometryDiagnostics {
-          FrameDiagnosticsLabel(measurement: measurement, isPresented: $isMenuOpen)
-            .frame(height: 18)
-            .allowsHitTesting(false)
+          FrameDiagnosticsLabel(
+            measurement: measurement, isPresented: $isMenuOpen,
+            contactArmed: $closesOnContactIsArmed, contactActionCount: $contactActionCount
+          )
+          .frame(height: 18)
+          .allowsHitTesting(false)
         }
       }
       .sheet(isPresented: $isSheetPresented) {
@@ -64,7 +69,9 @@ struct ContentView: View {
 
   @ViewBuilder
   private var menuHost: some View {
-    if configuration.usesImageBackground {
+    if configuration.usesRootContainer {
+      rootMenuHost
+    } else if configuration.usesImageBackground {
       hostContent
         .sideMenu(
           isPresented: $isMenuOpen,
@@ -93,6 +100,50 @@ struct ContentView: View {
         .sideMenu(isPresented: $isMenuOpen, edge: configuration.edge, width: configuration.width) {
           menuContent
         }
+    }
+  }
+
+  @ViewBuilder
+  private var rootMenuHost: some View {
+    if configuration.usesImageBackground {
+      SideMenu(
+        isPresented: $isMenuOpen,
+        edge: configuration.edge,
+        width: configuration.width,
+        contentInsets: configuration.contentInsets
+      ) {
+        hostContent
+      } menu: {
+        menuContent
+      } background: {
+        Image(uiImage: Self.diagnosticBackgroundImage)
+          .resizable()
+          .interpolation(.none)
+      }
+    } else if configuration.usesMagentaRootBackground {
+      SideMenu(
+        isPresented: $isMenuOpen,
+        edge: configuration.edge,
+        width: configuration.width,
+        contentInsets: configuration.contentInsets
+      ) {
+        hostContent
+      } menu: {
+        menuContent
+      } background: {
+        Color(red: 1, green: 0, blue: 1)
+      }
+    } else {
+      SideMenu(
+        isPresented: $isMenuOpen,
+        edge: configuration.edge,
+        width: configuration.width,
+        contentInsets: configuration.contentInsets
+      ) {
+        hostContent
+      } menu: {
+        menuContent
+      }
     }
   }
 
@@ -128,7 +179,7 @@ struct ContentView: View {
     }
   }
 
-  private var mainContent: some View {
+  private var mainItems: some View {
     VStack(spacing: 16) {
       Text("Main screen")
         .accessibilityIdentifier("main-screen")
@@ -158,37 +209,76 @@ struct ContentView: View {
         interruptionControls
       }
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .overlay(alignment: configuration.edge == .leading ? .leading : .trailing) {
-      Button {
-        edgeTapCount += 1
-      } label: {
-        Image(systemName: "hand.tap")
-          .frame(width: 28, height: 52)
-          .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("Tap edge control")
-      .accessibilityIdentifier("edge-action")
+  }
+
+  @ViewBuilder
+  private var sizedMainContent: some View {
+    if configuration.usesIntrinsicHost {
+      mainItems
+    } else {
+      mainItems
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    .overlay(alignment: configuration.edge == .leading ? .trailing : .leading) {
-      if configuration.showsDiagnosticActionCount {
+  }
+
+  private var mainContent: some View {
+    sizedMainContent
+      .overlay(alignment: configuration.edge == .leading ? .leading : .trailing) {
         Button {
-          oppositeEdgeActionCount += 1
+          edgeTapCount += 1
         } label: {
           Image(systemName: "hand.tap")
             .frame(width: 28, height: 52)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Tap opposite edge control")
-        .accessibilityIdentifier("outside-action")
+        .accessibilityLabel("Tap edge control")
+        .accessibilityIdentifier("edge-action")
       }
-    }
+      .overlay(alignment: configuration.edge == .leading ? .trailing : .leading) {
+        if configuration.showsDiagnosticActionCount {
+          Button {
+            oppositeEdgeActionCount += 1
+          } label: {
+            Image(systemName: "hand.tap")
+              .frame(width: 28, height: 52)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Tap opposite edge control")
+          .accessibilityIdentifier("outside-action")
+        }
+      }
   }
 
   @ViewBuilder
   private var menuContent: some View {
+    if configuration.closesOnContact {
+      menuSurface
+        .overlay {
+          GeometryReader { geometry in
+            Color.clear
+              .frame(width: 44, height: 44)
+              .contentShape(Rectangle())
+              .onLongPressGesture(
+                minimumDuration: 10,
+                maximumDistance: 250,
+                perform: {},
+                onPressingChanged: closeMenuOnContact
+              )
+              .accessibilityElement(children: .ignore)
+              .accessibilityLabel("Contact close test region")
+              .accessibilityIdentifier("contact-close-region")
+              .position(x: 60, y: geometry.size.height * 0.6)
+          }
+        }
+    } else {
+      menuSurface
+    }
+  }
+
+  @ViewBuilder
+  private var menuSurface: some View {
     if configuration.showsGeometryDiagnostics {
       sizedMenuContent
         .padding(16)
@@ -242,7 +332,11 @@ struct ContentView: View {
 
       if configuration.showsInteractionScenarios {
         Button("Close menu after a delay") {
-          scheduledAction = .closeMenu
+          if configuration.closesOnContact {
+            closesOnContactIsArmed = true
+          } else {
+            scheduledAction = .closeMenu
+          }
         }
         .accessibilityIdentifier("schedule-menu-close")
       }
@@ -273,6 +367,13 @@ struct ContentView: View {
       measurement.reset()
     }
     .accessibilityIdentifier(identifier)
+  }
+
+  private func closeMenuOnContact(_ isPressing: Bool) {
+    guard isPressing && closesOnContactIsArmed else { return }
+    closesOnContactIsArmed = false
+    contactActionCount += 1
+    isMenuOpen = false
   }
 
   private var opensFromRight: Bool {
@@ -341,8 +442,24 @@ private struct DemoConfiguration {
     arguments.contains("--interaction-scenarios")
   }
 
+  var closesOnContact: Bool {
+    arguments.contains("--close-on-contact")
+  }
+
   var usesPlainHost: Bool {
     arguments.contains("--plain-host")
+  }
+
+  var usesRootContainer: Bool {
+    arguments.contains("--root-container")
+  }
+
+  var usesIntrinsicHost: Bool {
+    arguments.contains("--intrinsic-host")
+  }
+
+  var usesMagentaRootBackground: Bool {
+    arguments.contains("--magenta-root-background")
   }
 
   var showsDiagnosticActionCount: Bool {
@@ -491,13 +608,17 @@ private final class MenuFrameMeasurement {
     }
   }
 
-  func json(isPresented: Bool) throws -> String {
+  func json(isPresented: Bool, contactArmed: Bool, contactActionCount: Int) throws -> String {
     var values: [String: Double] = [
       "actualMenuIntent": isPresented ? 1 : 0,
+      "contactArmed": contactArmed ? 1 : 0,
+      "contactActionCount": Double(contactActionCount),
       "windowWidth": windowSize.width,
       "windowHeight": windowSize.height,
       "safeTop": windowInsets.top,
       "safeBottom": windowInsets.bottom,
+      "safeLeft": windowInsets.left,
+      "safeRight": windowInsets.right,
       "hostObserved": host == nil ? 0 : 1,
       "sampleCount": Double(sampleCount),
       "unavailableCount": Double(unavailableCount),
@@ -715,13 +836,19 @@ extension UIImage {
 private struct FrameDiagnosticsLabel: UIViewRepresentable {
   let measurement: MenuFrameMeasurement
   @Binding var isPresented: Bool
+  @Binding var contactArmed: Bool
+  @Binding var contactActionCount: Int
 
   func makeUIView(context: Context) -> FrameDiagnosticsLabelView {
-    FrameDiagnosticsLabelView(measurement: measurement, presentationIntent: $isPresented)
+    FrameDiagnosticsLabelView(
+      measurement: measurement, presentationIntent: $isPresented,
+      contactArmed: $contactArmed, contactActionCount: $contactActionCount)
   }
 
   func updateUIView(_ view: FrameDiagnosticsLabelView, context: Context) {
     view.presentationIntent = $isPresented
+    view.contactArmed = $contactArmed
+    view.contactActionCount = $contactActionCount
   }
 }
 
@@ -729,12 +856,21 @@ private struct FrameDiagnosticsLabel: UIViewRepresentable {
 private final class FrameDiagnosticsLabelView: UILabel {
   private let measurement: MenuFrameMeasurement
   var presentationIntent: Binding<Bool>
+  var contactArmed: Binding<Bool>
+  var contactActionCount: Binding<Int>
   private var displayLink: CADisplayLink?
   private let target = FrameDisplayLinkTarget()
 
-  init(measurement: MenuFrameMeasurement, presentationIntent: Binding<Bool>) {
+  init(
+    measurement: MenuFrameMeasurement,
+    presentationIntent: Binding<Bool>,
+    contactArmed: Binding<Bool>,
+    contactActionCount: Binding<Int>
+  ) {
     self.measurement = measurement
     self.presentationIntent = presentationIntent
+    self.contactArmed = contactArmed
+    self.contactActionCount = contactActionCount
     super.init(frame: .zero)
     font = .monospacedSystemFont(ofSize: 8, weight: .regular)
     textAlignment = .center
@@ -765,7 +901,10 @@ private final class FrameDiagnosticsLabelView: UILabel {
     }
     text = "Actual menu frame samples: \(measurement.sampleCount)"
     do {
-      accessibilityValue = try measurement.json(isPresented: presentationIntent.wrappedValue)
+      accessibilityValue = try measurement.json(
+        isPresented: presentationIntent.wrappedValue,
+        contactArmed: contactArmed.wrappedValue,
+        contactActionCount: contactActionCount.wrappedValue)
     } catch {
       accessibilityValue = "Measurement serialization failed: \(error)"
     }

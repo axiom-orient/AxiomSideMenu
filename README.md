@@ -2,9 +2,13 @@
 
 A small SwiftUI drawer with one app-owned presentation binding. No external dependencies. Swift 6 language mode; iOS 17+, macOS 14+, and Mac Catalyst 17+.
 
+[한국어 사용법과 구현 기준](docs/USAGE_KO.md)
+
+This README documents 0.1.3. Sumday intentionally remains pinned to 0.1.2. See the GitHub release page for publication status.
+
 ## Installation
 
-In Xcode, add this package URL and select version **0.1.2** or later:
+In Xcode, add this package URL and select Exact Version **0.1.3**:
 
     https://github.com/axiom-orient/AxiomSideMenu.git
 
@@ -12,7 +16,7 @@ In a Swift package:
 
 ~~~swift
  dependencies: [
-   .package(url: "https://github.com/axiom-orient/AxiomSideMenu.git", from: "0.1.2")
+   .package(url: "https://github.com/axiom-orient/AxiomSideMenu.git", exact: "0.1.3")
  ],
  targets: [
    .target(
@@ -24,40 +28,54 @@ In a Swift package:
 
 For local development, use .package(path: "../AxiomSideMenu") or Xcode's Add Local option.
 
-## Usage
+## Start with the root container
 
-This iOS example attaches the menu outside NavigationStack so the drawer covers the navigation bar:
+Put the main screen and menu in one root container. No safe-area calculations or negative padding are needed:
 
 ~~~swift
 import AxiomSideMenu
 import SwiftUI
 
-struct ContentView: View {
+struct AppScreen: View {
   @State private var isMenuOpen = false
 
   var body: some View {
-    NavigationStack {
-      Text("Home")
-        .navigationTitle("Home")
-        .toolbar {
-          ToolbarItem(placement: .topBarLeading) {
-            Button("Menu", systemImage: "line.3.horizontal") {
-              isMenuOpen = true
-            }
-          }
-        }
-    }
-    .sideMenu(isPresented: $isMenuOpen, width: 280) {
+    SideMenu(isPresented: $isMenuOpen) {
+      NavigationStack {
+        Button("Open menu") { isMenuOpen = true }
+      }
+    } menu: {
       VStack(alignment: .leading, spacing: 16) {
+        Text("Menu")
         Button("Home") { isMenuOpen = false }
         Button("Settings") { isMenuOpen = false }
         Spacer()
       }
-      .padding()
+      .padding(16)
     }
   }
 }
 ~~~
+
+The container fills the root's visible canvas even when the main view is small. It owns the panel's physical bounds and safe foreground area. Menu backgrounds cover system safe-area bands; interactive content avoids those bands. Navigation belongs inside the main closure.
+
+Use `edge: .trailing` for the opposite side. A custom image has its own closure:
+
+~~~swift
+SideMenu(isPresented: $isMenuOpen, edge: .trailing) {
+  NavigationStack { MainScreen() }
+} menu: {
+  MenuScreen()
+} background: {
+  Image("SidebarPaper").resizable().scaledToFill()
+}
+~~~
+
+The app owns menu items, routing and ordinary design spacing. A screen change or command closes the same app-owned binding. The library owns edge admission, drag progress, release thresholds, animation and modal input isolation.
+
+### Existing modifier API
+
+Existing `.sideMenu(isPresented:) { ... }` calls remain available. Use the modifier when you intentionally want a drawer bounded by a particular host view. Attach it outside NavigationStack to cover its bar. Its sizing follows that host's offered region; the root container is the default for a full-screen drawer.
 
 ## App commands and agent actions
 
@@ -77,7 +95,7 @@ final class SidebarState {
 }
 ~~~
 
-Bind your view with .sideMenu(isPresented: $sidebar.isPresented). An agent action running on another actor can call await sidebar.close(). Caller state changes supersede an in-flight drawer gesture. The app continues to own its routing and agent integration.
+Use `SideMenu(isPresented: $sidebar.isPresented)` at the root, or the existing modifier for a bounded host. An agent action running on another actor can call await sidebar.close(). Caller state changes supersede an in-flight drawer gesture. The app continues to own its routing and agent integration.
 
 Use edge: .leading or edge: .trailing to select the logical horizontal edge. In a left-to-right layout these are the left and right sides respectively; right-to-left layouts reverse them.
 
@@ -97,7 +115,7 @@ An edge-opening gesture shares the edge with native back navigation and horizont
 
 ## Background and content boundaries
 
-Attach the modifier to a full-height root **outside `NavigationStack`**. Its menu content starts at the top of that root's safe content region, below the status bar. The library does not add the system safe-area inset a second time. A short menu is aligned to the top.
+For the modifier API, attach it to a full-height root **outside `NavigationStack`**. Its menu content starts at the top of that root's safe content region, below the status bar. The library does not add the system safe-area inset a second time. A short menu is aligned to the top.
 
 The library owns the panel's content frame and background frame separately. Keep the menu header, scrollable list, footer and ordinary design spacing inside the menu closure. Supply a decorative image or custom background in the separate background closure:
 
@@ -121,9 +139,9 @@ mainContent
 
 The library sizes and clips the background to the full panel, including the status-bar and home-indicator bands. Background views are decorative: their controls do not receive input or accessibility focus. The header and footer remain in the safe content region while the list scrolls.
 
-For a color, gradient or material, the existing `background: ShapeStyle` overload remains available. The original modifier uses the system background style.
+For a color, gradient or material, the existing `background: ShapeStyle` overload remains available. The original modifier and default root container use the system background style.
 
-`contentInsets` adds space **inside** the already safe content region. It defaults to zero for the background-view overload. To reserve a navigation bar or custom header, pass its measured height; do not add the status-bar inset again or assume a universal 44-point navigation bar:
+On either API, `contentInsets` adds space **inside** the already safe content region. It defaults to zero for the background-view overload. To reserve a navigation bar or custom header, pass its measured height; do not add the status-bar inset again or assume a universal 44-point navigation bar:
 
 ~~~swift
 mainContent
@@ -139,9 +157,9 @@ mainContent
   }
 ~~~
 
-The same `contentInsets:` argument is available with the default fill or a ShapeStyle fill. Extra content insets do not shrink the background. Insets are finite, nonnegative reservations. Invalid values resolve to zero; combined reservations are bounded by the offered safe content size.
+The modifier also accepts `contentInsets:` with the default fill or a ShapeStyle fill. Extra content insets do not shrink the background. Insets are finite, nonnegative reservations. Invalid values resolve to zero; combined reservations are bounded by the offered safe content size.
 
-The modifier uses its host's bounds and safe region. A modifier attached inside a navigation screen cannot cover an ancestor navigation bar. An ancestor that ignores safe areas also changes the region the modifier receives. Attach the drawer outside those scopes; the library does not query a global window or guess system-bar heights.
+The advanced modifier uses its host's bounds and safe region. A modifier attached inside a navigation screen cannot cover an ancestor navigation bar. An ancestor that ignores safe areas also changes the region the modifier receives. Attach the drawer outside those scopes; the library does not query a global window or guess system-bar heights.
 
 ### Upgrading from 0.1.0
 
@@ -157,7 +175,7 @@ See [verification evidence](docs/VERIFICATION.md) for the tested revision, comma
 
 ## Version pinning and recovery
 
-Use .package(url: "https://github.com/axiom-orient/AxiomSideMenu.git", exact: "0.1.2") to pin this release. Retain your previously tested version so you can restore that requirement if a future upgrade fails. Published tags are immutable.
+Use .package(url: "https://github.com/axiom-orient/AxiomSideMenu.git", exact: "0.1.3") to pin this release. Retain your previously tested version so you can restore that requirement if a future upgrade fails. Published tags are immutable.
 
 ## License
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3 — 2026-10-08
+
+- Added the SideMenu root container with main/menu/background closures and the same app-owned binding.
+- Established a complete root canvas for intrinsic main content, while keeping system-safe foreground layout separate from the panel background.
+- Preserved all existing modifier signatures and canonical gesture/state ownership.
+- Added root, intrinsic-content, navigation, and horizontal-safe-area regressions.
+
 ## 0.1.2 — 2026-10-07
 
 - Added a separate View background closure for panel-wide image and custom backgrounds. The library sizes and clips them through the status and home-indicator bands.

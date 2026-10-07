@@ -1,3 +1,4 @@
+import ImageIO
 import UIKit
 import XCTest
 
@@ -73,19 +74,38 @@ final class SideMenuFlowTests: XCTestCase {
   }
 
   func testClosingAnimationCanBeRegrabbedOutsideTheOpeningEdgeZone() throws {
-    let app = launch(arguments: ["--geometry-diagnostics", "--interaction-scenarios"])
+    let app = launch(
+      arguments: ["--geometry-diagnostics", "--interaction-scenarios", "--close-on-contact"])
     app.buttons["open-menu"].tap()
     assertMenuOpen(in: app)
     app.buttons["reset-menu-motion"].tap()
-    app.buttons["schedule-menu-close"].tap()
-
-    let startX: CGFloat = 60
+    let region = app.descendants(matching: .any)["contact-close-region"]
+    assertHittable(region)
+    let contactFrame = region.frame
+    XCTAssertEqual(contactFrame.width, 44, accuracy: 3)
+    XCTAssertEqual(contactFrame.height, 44, accuracy: 3)
+    let startX = contactFrame.midX
+    let inputY = contactFrame.midY
+    let origin = app.coordinate(withNormalizedOffset: .zero)
+    let start = origin.withOffset(CGVector(dx: startX, dy: inputY))
+    let end = origin.withOffset(CGVector(dx: startX + 170, dy: inputY))
     XCTAssertGreaterThan(startX, 28, "This input must use the panel, not the opening edge zone")
-    drag(
-      in: app, startX: startX, endX: startX + 170, velocity: 800,
-      pressDuration: 2.73, holdDuration: 0.4
+    app.buttons["schedule-menu-close"].tap()
+    let armed = try frameMeasurement(in: app)
+    XCTAssertEqual(try XCTUnwrap(armed["contactArmed"]), 1)
+    XCTAssertEqual(try XCTUnwrap(armed["contactActionCount"]), 0)
+    XCTAssertEqual(try XCTUnwrap(armed["actualMenuIntent"]), 1)
+    // Actual finger contact starts the app-owned close. Recognition follows
+    // during its unchanged 280ms curve; only real frame reversal qualifies it.
+    start.press(
+      forDuration: 0.08,
+      thenDragTo: end,
+      withVelocity: XCUIGestureVelocity(rawValue: 800),
+      thenHoldForDuration: 0.4
     )
     let frames = try frameMeasurement(in: app)
+    XCTAssertEqual(try XCTUnwrap(frames["contactActionCount"]), 1)
+    XCTAssertEqual(try XCTUnwrap(frames["contactArmed"]), 0)
     assertMenuOpen(in: app)
     XCTAssertGreaterThanOrEqual(try XCTUnwrap(frames["closedOutwardCount"]), 1)
     XCTAssertGreaterThan(try XCTUnwrap(frames["closedOutwardDistance"]), 3)
@@ -94,7 +114,6 @@ final class SideMenuFlowTests: XCTestCase {
     XCTAssertGreaterThan(reversalX, -277)
     XCTAssertLessThan(reversalX, -3)
     XCTAssertGreaterThan(try XCTUnwrap(frames["firstReversalMaxX"]), startX)
-    let inputY = app.frame.height * 0.6
     XCTAssertLessThan(try XCTUnwrap(frames["firstReversalMinY"]), inputY)
     XCTAssertGreaterThan(try XCTUnwrap(frames["firstReversalMaxY"]), inputY)
     XCTAssertLessThan(try XCTUnwrap(frames["maximumFrameJump"]), 80)
@@ -128,6 +147,179 @@ final class SideMenuFlowTests: XCTestCase {
   func testShortPlainMenuKeepsItsImageBackgroundAcrossTheWindow() throws {
     try assertRasterBackground(
       arguments: ["--plain-host", "--short-menu"], extraTop: 0, hasBottomControl: false)
+  }
+
+  func testRootContainerFillsTheSafeAreaAroundIntrinsicMainContent() throws {
+    let app = launch(
+      arguments: ["--root-container", "--intrinsic-host", "--plain-host", "--geometry-diagnostics"])
+    app.buttons["open-menu"].tap()
+    assertMenuOpen(in: app)
+    let frames = try frameMeasurement(in: app)
+    let safeTop = try XCTUnwrap(frames["safeTop"])
+    let safeBottom = try XCTUnwrap(frames["safeBottom"])
+    XCTAssertEqual(try XCTUnwrap(frames["hostObserved"]), 1)
+    XCTAssertLessThan(try XCTUnwrap(frames["hostWidth"]), app.frame.width)
+    XCTAssertLessThan(try XCTUnwrap(frames["hostHeight"]), app.frame.height - safeTop - safeBottom)
+    XCTAssertGreaterThan(try XCTUnwrap(frames["sampleCount"]), 0)
+    XCTAssertEqual(try XCTUnwrap(frames["lastWidth"]), 280, accuracy: 3)
+    XCTAssertEqual(try XCTUnwrap(frames["lastY"]), safeTop, accuracy: 3)
+    XCTAssertEqual(
+      try XCTUnwrap(frames["lastHeight"]), app.frame.height - safeTop - safeBottom, accuracy: 3)
+    XCTAssertEqual(app.staticTexts["menu-open"].frame.minY, safeTop + 16, accuracy: 3)
+    assertHittable(app.buttons["menu-bottom"])
+    XCTAssertEqual(
+      app.buttons["menu-bottom"].frame.maxY, app.frame.height - safeBottom - 16, accuracy: 3)
+    XCTAssertEqual(app.staticTexts["menu-open-action-count"].label, "Open button actions: 1")
+
+    app.buttons["menu-home"].tap()
+    assertMenuClosed(in: app)
+    openByEdgeSwipe(in: app, fromRight: false)
+    assertMenuOpen(in: app)
+    drag(in: app, startX: 240, endX: 20)
+    assertMenuClosed(in: app)
+
+    app.buttons["open-menu"].tap()
+    assertMenuOpen(in: app)
+    XCTAssertEqual(app.staticTexts["menu-open-action-count"].label, "Open button actions: 2")
+    app.buttons["Close menu"].tap()
+    assertMenuClosed(in: app)
+  }
+
+  func testRootNavigationContainerKeepsItsImageAndExplicitReservation() throws {
+    let app = try assertRasterBackground(
+      arguments: ["--root-container", "--extra-top-reservation"],
+      extraTop: 44, hasBottomControl: true)
+    openByEdgeSwipe(in: app, fromRight: false)
+    assertMenuOpen(in: app)
+    drag(in: app, startX: 240, endX: 140, holdDuration: 0.3)
+    assertMenuOpen(in: app)
+    drag(in: app, startX: 240, endX: 70)
+    assertMenuClosed(in: app)
+
+    app.buttons["open-menu"].tap()
+    assertMenuOpen(in: app)
+    XCTAssertEqual(app.staticTexts["menu-open-action-count"].label, "Open button actions: 2")
+    app.buttons["Close menu"].tap()
+    assertMenuClosed(in: app)
+  }
+
+  func testLandscapeRootUsesThePhysicalPanelAndHorizontalSafeContent() throws {
+    try assertLandscapeRoot(arguments: [], fromRight: false, rightToLeft: false)
+  }
+
+  func testLandscapeTrailingRootUsesTheRightPhysicalPanel() throws {
+    try assertLandscapeRoot(arguments: ["--trailing"], fromRight: true, rightToLeft: false)
+  }
+
+  func testLandscapeRightToLeftLeadingRootUsesTheRightPhysicalPanel() throws {
+    try assertLandscapeRoot(arguments: ["--rtl"], fromRight: true, rightToLeft: true)
+  }
+
+  func testLandscapeRightToLeftTrailingRootUsesTheLeftPhysicalPanel() throws {
+    try assertLandscapeRoot(
+      arguments: ["--rtl", "--trailing"], fromRight: false, rightToLeft: true)
+  }
+
+  private func assertLandscapeRoot(
+    arguments: [String],
+    fromRight: Bool,
+    rightToLeft: Bool
+  ) throws {
+    XCUIDevice.shared.orientation = .landscapeLeft
+    defer { XCUIDevice.shared.orientation = .portrait }
+    let app = launch(
+      arguments: arguments + [
+        "--root-container", "--intrinsic-host", "--plain-host", "--geometry-diagnostics",
+        "--magenta-root-background",
+      ],
+      landscape: true)
+    app.buttons["open-menu"].tap()
+    // The primary button's landscape center lies outside this 280pt panel;
+    // tapping it is a valid scrim dismissal, so use the actual intent here.
+    assertHittable(app.buttons["menu-home"])
+    let frames = try frameMeasurement(in: app)
+    let safeLeft = try XCTUnwrap(frames["safeLeft"])
+    let safeRight = try XCTUnwrap(frames["safeRight"])
+    let safeTop = try XCTUnwrap(frames["safeTop"])
+    let safeBottom = try XCTUnwrap(frames["safeBottom"])
+    XCTAssertGreaterThan(
+      max(safeLeft, safeRight), 0, "This device must expose a horizontal safe inset")
+    XCTAssertEqual(try XCTUnwrap(frames["windowWidth"]), app.frame.width, accuracy: 3)
+    XCTAssertEqual(try XCTUnwrap(frames["windowHeight"]), app.frame.height, accuracy: 3)
+    XCTAssertGreaterThan(try XCTUnwrap(frames["sampleCount"]), 0)
+    XCTAssertEqual(try XCTUnwrap(frames["actualMenuIntent"]), 1)
+    XCTAssertEqual(app.staticTexts["menu-open-action-count"].label, "Open button actions: 1")
+    let contentX = fromRight ? app.frame.width - 280 : safeLeft
+    let contentWidth = 280 - (fromRight ? safeRight : safeLeft)
+    XCTAssertEqual(try XCTUnwrap(frames["lastX"]), contentX, accuracy: 3)
+    XCTAssertEqual(try XCTUnwrap(frames["lastY"]), safeTop, accuracy: 3)
+    XCTAssertEqual(try XCTUnwrap(frames["lastWidth"]), contentWidth, accuracy: 3)
+    XCTAssertEqual(
+      try XCTUnwrap(frames["lastHeight"]), app.frame.height - safeTop - safeBottom, accuracy: 3)
+    if rightToLeft {
+      XCTAssertEqual(
+        app.staticTexts["menu-open"].frame.maxX, contentX + contentWidth - 16,
+        accuracy: 3)
+    } else {
+      XCTAssertEqual(app.staticTexts["menu-open"].frame.minX, contentX + 16, accuracy: 3)
+    }
+    XCTAssertEqual(app.staticTexts["menu-open"].frame.minY, safeTop + 16, accuracy: 3)
+    XCTAssertEqual(
+      app.buttons["menu-bottom"].frame.maxY, app.frame.height - safeBottom - 16,
+      accuracy: 3)
+
+    let appScreenshot = app.screenshot()
+    let screenshot = XCUIScreen.main.screenshot()
+    for (name, capture) in [("App", appScreenshot), ("Full screen", screenshot)] {
+      let attachment = XCTAttachment(
+        data: capture.pngRepresentation,
+        uniformTypeIdentifier: "public.png")
+      attachment.name = "Landscape original \(name) PNG"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+      try logScreenshotGeometry(capture, name: name, coordinateSize: app.frame.size)
+    }
+    XCTAssertEqual(app.frame.minX, 0, accuracy: 3)
+    XCTAssertEqual(app.frame.minY, 0, accuracy: 3)
+    // Stay below the landscape sensor island and above the home/corner band.
+    let unobstructedY = app.frame.height * 0.75
+    let outerEdgeX: CGFloat = fromRight ? app.frame.width - 8 : 8
+    let innerEdgeX: CGFloat = fromRight ? app.frame.width - 272 : 272
+    let outsideX: CGFloat = fromRight ? 8 : app.frame.width - 8
+    try assertMagentaPixel(
+      screenshot, x: outerEdgeX, y: unobstructedY,
+      coordinateSize: app.frame.size, basis: .fullScreenDisplay)
+    try assertMagentaPixel(
+      screenshot, x: innerEdgeX, y: unobstructedY,
+      coordinateSize: app.frame.size, basis: .fullScreenDisplay)
+    let outside = try pixelRGBA(
+      screenshot, x: outsideX, y: unobstructedY,
+      coordinateSize: app.frame.size, basis: .fullScreenDisplay)
+    XCTAssertLessThan(max(outside[0], outside[1], outside[2]), 210)
+    XCTAssertLessThan(abs(Int(outside[0]) - Int(outside[1])), 16)
+    XCTAssertLessThan(abs(Int(outside[2]) - Int(outside[1])), 16)
+    XCTAssertGreaterThan(outside[3], 240)
+
+    let closingStart: CGFloat = fromRight ? app.frame.width - 240 : 240
+    let outward: CGFloat = fromRight ? 1 : -1
+    drag(
+      in: app, startX: closingStart, endX: closingStart + outward * 100,
+      normalizedY: 0.75, holdDuration: 0.3)
+    assertHittable(app.buttons["menu-home"])
+    XCTAssertEqual(try XCTUnwrap(try frameMeasurement(in: app)["actualMenuIntent"]), 1)
+    drag(in: app, startX: closingStart, endX: closingStart + outward * 170, normalizedY: 0.75)
+    assertMenuClosed(in: app)
+    let openingStart: CGFloat = fromRight ? app.frame.width - 10 : 10
+    drag(in: app, startX: openingStart, endX: openingStart - outward * 170, normalizedY: 0.75)
+    assertHittable(app.buttons["menu-home"])
+    XCTAssertEqual(try XCTUnwrap(try frameMeasurement(in: app)["actualMenuIntent"]), 1)
+    app.buttons["menu-home"].tap()
+    assertMenuClosed(in: app)
+    app.buttons["open-menu"].tap()
+    assertHittable(app.buttons["menu-home"])
+    XCTAssertEqual(app.staticTexts["menu-open-action-count"].label, "Open button actions: 2")
+    app.buttons["Close menu"].tap()
+    assertMenuClosed(in: app)
   }
 
   func testModalOverlayBlocksThePrimaryButtonAction() {
@@ -310,7 +502,8 @@ final class SideMenuFlowTests: XCTestCase {
 
   private func launch(
     arguments: [String] = [],
-    addDiagnostics: Bool = true
+    addDiagnostics: Bool = true,
+    landscape: Bool = false
   ) -> XCUIApplication {
     let app = XCUIApplication()
     app.launchArguments = arguments
@@ -319,8 +512,15 @@ final class SideMenuFlowTests: XCTestCase {
     }
     app.launch()
     assertHittable(app.buttons["open-menu"], timeout: 5)
-    XCTAssertGreaterThan(app.frame.width, 390, "The demo must use the iPhone's full screen")
-    XCTAssertGreaterThan(app.frame.height, 800, "The demo must use the iPhone's full screen")
+    if landscape {
+      XCTAssertGreaterThan(
+        app.frame.width, 800, "The landscape demo must use the iPhone's full screen")
+      XCTAssertGreaterThan(
+        app.frame.height, 390, "The landscape demo must use the iPhone's full screen")
+    } else {
+      XCTAssertGreaterThan(app.frame.width, 390, "The demo must use the iPhone's full screen")
+      XCTAssertGreaterThan(app.frame.height, 800, "The demo must use the iPhone's full screen")
+    }
     primaryButtonFrame = app.buttons["open-menu"].frame
     return app
   }
@@ -335,8 +535,10 @@ final class SideMenuFlowTests: XCTestCase {
     var frames = try observeRelease(in: app, name: "opening 100pt fast")
     try assertPhysicalPanelInterval(frames, fromRight: fromRight)
     assertMenuClosed(in: app)
+    // Preserve the exact 140pt release position while allowing a real stable
+    // midpoint snapshot despite simulator scheduling; numeric guards stay fixed.
     drag(
-      in: app, startX: openingStart, endX: openingStart + inward * 140, holdDuration: 0.3)
+      in: app, startX: openingStart, endX: openingStart + inward * 140, holdDuration: 0.8)
     frames = try observeRelease(in: app, name: "opening 140pt exact")
     try assertPhysicalPanelInterval(frames, fromRight: fromRight)
     try assertHeldFramePixels(frames, prefix: "opening", fromRight: fromRight)
@@ -351,7 +553,7 @@ final class SideMenuFlowTests: XCTestCase {
     try assertPhysicalPanelInterval(frames, fromRight: fromRight, expectsOpen: true)
     assertMenuOpen(in: app)
     drag(
-      in: app, startX: closingStart, endX: closingStart - inward * 140, holdDuration: 0.3)
+      in: app, startX: closingStart, endX: closingStart - inward * 140, holdDuration: 0.8)
     frames = try observeRelease(in: app, name: "closing 140pt exact")
     try assertPhysicalPanelInterval(frames, fromRight: fromRight, expectsOpen: true)
     try assertHeldFramePixels(frames, prefix: "closing", fromRight: fromRight)
@@ -413,11 +615,12 @@ final class SideMenuFlowTests: XCTestCase {
     return try XCTUnwrap(values as? [String: Double])
   }
 
+  @discardableResult
   private func assertRasterBackground(
     arguments: [String],
     extraTop: Double,
     hasBottomControl: Bool
-  ) throws {
+  ) throws -> XCUIApplication {
     let app = launch(arguments: arguments + ["--geometry-diagnostics", "--image-background"])
     app.buttons["open-menu"].tap()
     assertMenuOpen(in: app)
@@ -458,6 +661,7 @@ final class SideMenuFlowTests: XCTestCase {
 
     app.buttons["menu-home"].tap()
     assertMenuClosed(in: app)
+    return app
   }
 
   private func observeRelease(in app: XCUIApplication, name: String) throws -> [String: Double] {
@@ -520,9 +724,11 @@ final class SideMenuFlowTests: XCTestCase {
   private func assertMagentaPixel(
     _ screenshot: XCUIScreenshot,
     x: CGFloat,
-    y: CGFloat
+    y: CGFloat,
+    coordinateSize: CGSize? = nil,
+    basis: ScreenshotPixelBasis = .encodedRows
   ) throws {
-    let rgba = try pixelRGBA(screenshot, x: x, y: y)
+    let rgba = try pixelRGBA(screenshot, x: x, y: y, coordinateSize: coordinateSize, basis: basis)
     XCTAssertGreaterThan(rgba[0], 240, "Background pixel at (\(x), \(y)): \(rgba)")
     XCTAssertLessThan(rgba[1], 16, "Background pixel at (\(x), \(y)): \(rgba)")
     XCTAssertGreaterThan(rgba[2], 240, "Background pixel at (\(x), \(y)): \(rgba)")
@@ -531,16 +737,97 @@ final class SideMenuFlowTests: XCTestCase {
   private func pixelRGBA(
     _ screenshot: XCUIScreenshot,
     x: CGFloat,
-    y: CGFloat
+    y: CGFloat,
+    coordinateSize: CGSize? = nil,
+    basis: ScreenshotPixelBasis = .encodedRows
   ) throws -> [UInt8] {
     let image = screenshot.image
-    let source = try XCTUnwrap(image.cgImage)
-    let scale = CGFloat(source.width) / image.size.width
+    let png = screenshot.pngRepresentation
+    let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+    attachment.name = "Actual PNG used for pixel coordinates"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+    let decoder = try XCTUnwrap(CGImageSourceCreateWithData(png as CFData, nil))
+    let source = try XCTUnwrap(CGImageSourceCreateImageAtIndex(decoder, 0, nil))
+    let properties = try XCTUnwrap(
+      CGImageSourceCopyPropertiesAtIndex(decoder, 0, nil) as? [String: Any])
+    let metadataWidth = try XCTUnwrap(properties[kCGImagePropertyPixelWidth as String] as? NSNumber)
+      .intValue
+    let metadataHeight = try XCTUnwrap(
+      properties[kCGImagePropertyPixelHeight as String] as? NSNumber
+    )
+    .intValue
+    XCTAssertEqual(metadataWidth, source.width)
+    XCTAssertEqual(metadataHeight, source.height)
+    // PNG without an orientation tag preserves its encoded row order (orientation 1).
+    let taggedOrientation = properties[kCGImagePropertyOrientation as String] as? NSNumber
+    let orientation = taggedOrientation?.intValue ?? 1
+    XCTAssertTrue((1...8).contains(orientation))
+    guard (1...8).contains(orientation) else {
+      XCTFail("Unsupported actual PNG orientation \(orientation)")
+      throw PixelMeasurementError.unsupportedOrientation(orientation)
+    }
+    let points = coordinateSize ?? image.size
+    guard points.width > 0, points.height > 0,
+      points.width.isFinite, points.height.isFinite
+    else {
+      XCTFail("The measured screenshot coordinate size is unavailable: \(points)")
+      throw PixelMeasurementError.invalidCoordinateSize(points)
+    }
+    if basis == .fullScreenDisplay {
+      guard coordinateSize != nil,
+        abs(image.size.width - points.width) <= 0.001,
+        abs(image.size.height - points.height) <= 0.001
+      else {
+        XCTFail("Full-screen UIImage point size must match the actual native app viewport")
+        throw PixelMeasurementError.coordinateBasisMismatch(raw: image.size, points: points)
+      }
+    }
+    let swapsAxes = basis == .fullScreenDisplay && orientation >= 5
+    let displayWidth = swapsAxes ? source.height : source.width
+    let displayHeight = swapsAxes ? source.width : source.height
+    let scaleX = CGFloat(displayWidth) / points.width
+    let scaleY = CGFloat(displayHeight) / points.height
+    guard abs(scaleX - scaleY) <= 0.001 else {
+      XCTFail(
+        "Actual raw PNG \(source.width)x\(source.height) and measured coordinate size \(points) "
+          + "use different bases; refusing to infer a rotation beyond explicit PNG metadata")
+      throw PixelMeasurementError.coordinateBasisMismatch(
+        raw: CGSize(width: CGFloat(source.width), height: CGFloat(source.height)), points: points)
+    }
+    let displayX = Int((x * scaleX).rounded(.down))
+    let displayY = Int((y * scaleY).rounded(.down))
+    let rawX: Int
+    let rawY: Int
+    if basis == .encodedRows {
+      (rawX, rawY) = (displayX, displayY)
+    } else {
+      // XCUIScreen PNG stores the explicit EXIF transform. Convert scene points
+      // to encoded pixels without modifying or replacing the original image.
+      switch orientation {
+      case 1: (rawX, rawY) = (displayX, displayY)
+      case 2: (rawX, rawY) = (source.width - 1 - displayX, displayY)
+      case 3: (rawX, rawY) = (source.width - 1 - displayX, source.height - 1 - displayY)
+      case 4: (rawX, rawY) = (displayX, source.height - 1 - displayY)
+      case 5: (rawX, rawY) = (displayY, displayX)
+      case 6: (rawX, rawY) = (displayY, source.height - 1 - displayX)
+      case 7: (rawX, rawY) = (source.width - 1 - displayY, source.height - 1 - displayX)
+      case 8: (rawX, rawY) = (source.width - 1 - displayY, displayX)
+      default:
+        throw PixelMeasurementError.unsupportedOrientation(orientation)
+      }
+    }
+    XCTAssertGreaterThanOrEqual(rawX, 0)
+    XCTAssertLessThan(rawX, source.width)
+    XCTAssertGreaterThanOrEqual(rawY, 0)
+    XCTAssertLessThan(rawY, source.height)
+    print(
+      "AXIOM_PNG_PIXEL_MAPPING raw=\(source.width)x\(source.height) orientation=\(orientation) "
+        + "orientationTagged=\(taggedOrientation != nil) UIImagePoints=\(image.size) "
+        + "coordinatePoints=\(points) basis=\(basis) scale=\(scaleX) "
+        + "point=(\(x),\(y)) rawPixel=(\(rawX),\(rawY))")
     let pixel = try XCTUnwrap(
-      source.cropping(
-        to: CGRect(
-          x: (x * scale).rounded(.down), y: (y * scale).rounded(.down),
-          width: 1, height: 1))
+      source.cropping(to: CGRect(x: CGFloat(rawX), y: CGFloat(rawY), width: 1, height: 1))
     )
     var rgba = [UInt8](repeating: 0, count: 4)
     try rgba.withUnsafeMutableBytes { buffer in
@@ -554,6 +841,34 @@ final class SideMenuFlowTests: XCTestCase {
       context.draw(pixel, in: CGRect(x: 0, y: 0, width: 1, height: 1))
     }
     return rgba
+  }
+
+  private func logScreenshotGeometry(
+    _ screenshot: XCUIScreenshot,
+    name: String,
+    coordinateSize: CGSize
+  ) throws {
+    let decoder = try XCTUnwrap(
+      CGImageSourceCreateWithData(screenshot.pngRepresentation as CFData, nil))
+    let source = try XCTUnwrap(CGImageSourceCreateImageAtIndex(decoder, 0, nil))
+    let properties = try XCTUnwrap(
+      CGImageSourceCopyPropertiesAtIndex(decoder, 0, nil) as? [String: Any])
+    let orientation = properties[kCGImagePropertyOrientation as String] as? NSNumber
+    print(
+      "AXIOM_SCREENSHOT_GEOMETRY name=\(name) raw=\(source.width)x\(source.height) "
+        + "orientation=\(orientation?.stringValue ?? "untagged") "
+        + "UIImagePoints=\(screenshot.image.size) actualAppPoints=\(coordinateSize)")
+  }
+
+  private enum PixelMeasurementError: Error {
+    case unsupportedOrientation(Int)
+    case invalidCoordinateSize(CGSize)
+    case coordinateBasisMismatch(raw: CGSize, points: CGSize)
+  }
+
+  private enum ScreenshotPixelBasis: Equatable {
+    case encodedRows
+    case fullScreenDisplay
   }
 
   private func assertDirectionalMenu(arguments: [String], fromRight: Bool) throws {
@@ -604,10 +919,11 @@ final class SideMenuFlowTests: XCTestCase {
     endX: CGFloat,
     velocity: CGFloat = 80,
     pressDuration: TimeInterval = 0.05,
+    normalizedY: CGFloat = 0.6,
     holdDuration: TimeInterval = 0
   ) {
     let origin = app.coordinate(withNormalizedOffset: .zero)
-    let y = app.frame.height * 0.6
+    let y = app.frame.height * normalizedY
     let start = origin.withOffset(CGVector(dx: startX, dy: y))
     let end = origin.withOffset(CGVector(dx: endX, dy: y))
     start.press(
